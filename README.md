@@ -1,2 +1,2 @@
 # trango-glacier
-code and stuff
+code samples from here and there.
