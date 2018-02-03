@@ -2,6 +2,11 @@
 # This program adds up integers
 # expects a comma delimited string: 1,2,5,6
 # returns the count of integers (4) and sum (14)
+#
+# Author: Will Mooreston
+# Created: 2015-??-??
+#
+
 import sys
 
 while True:
