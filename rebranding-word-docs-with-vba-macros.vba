@@ -15,6 +15,7 @@ Public Const BLDG_BLOCKS = "C:\Users\#####\AppData\Roaming\Microsoft\Document Bu
 'more properly (Environ("APPDATA") & "\Microsoft\Document Building Blocks\1033\15\Built-In Building Blocks.dotx", but can't use a variable in a Const obvi
 Public pStrDocType As String
 Public pReProcess As Integer
+Public pInitialPages As Integer
 
 Sub CheckConsts()
     MsgBox "GENERAL_HEADER = " & GENERAL_HEADER & vbCrLf & _
@@ -40,8 +41,8 @@ Sub UpdateDocuments()
     strFolder = InputBox("Path to folder of target documents:")
     If strFolder = "" Then Exit Sub
     
-    ''' Due to further rebranding changes occurring after we'd started, we need to now check if we processing more old docs
-    ''' or pReProcessing new docs. Once we've made it through all the old stuff, this can go away and can drop the old-line deleter
+    ''' Due to further rebranding changes occurring after we'd started, we need to now check if we are processing more old docs
+    ''' or Re-Processing new docs. Once we've made it through all the old stuff, this can go away and can drop the old-line deleter
     pReProcess = MsgBox("is this a RE-process of NEW forms?", vbYesNo + vbQuestion, "pReProcess?")
     
     strFile = Dir(strFolder & "\*.doc*", vbNormal)
@@ -77,16 +78,17 @@ Sub RebrandDocuments(headFile As String, footFile As String)
 ' NOTE: if called on its own, changes to the document are NOT SAVED,
 ' so it's good for testing just GENERAL or just INTAKE subs or processing one-offs
 '
-    
+    pInitialPages = ActiveDocument.BuiltInDocumentProperties(wdPropertyPages)
     '''
     'delete old things
     If pReProcess = vbNo Then
       deleteOldBrandingLines
     End If
     
+    
     deleteExistingHeaderFooter
-    deleteLingeringEmailBookmark
-
+    deleteLingeringBookmarks
+    
     'activate the first page header/footer toggle
     ActiveDocument.Sections(1).PageSetup.DifferentFirstPageHeaderFooter = True
     'goto first page
@@ -100,7 +102,7 @@ Sub RebrandDocuments(headFile As String, footFile As String)
     
     'delete extra CR added to header by insertion method
     Selection.EndKey Unit:=wdStory
-    Selection.Delete Unit:=wdCharacter, Count:=2
+    Selection.Delete Unit:=wdCharacter, Count:=1
     
     'return to main window
     ActiveWindow.ActivePane.View.SeekView = wdSeekMainDocument
@@ -153,9 +155,30 @@ Sub deleteExistingHeaderFooter()
             If oFoot.Exists Then oFoot.Range.Delete
         Next oFoot
     Next oSec
+    
+    'delete any lingering contents of regular page header
+    If ActiveDocument.Sections(1).Headers(wdHeaderFooterPrimary).Exists = True Then
+        ActiveWindow.ActivePane.View.SeekView = wdSeekCurrentPageHeader
+        Selection.WholeStory
+        Selection.Delete Unit:=wdCharacter, Count:=1
+        Selection.WholeStory
+        Selection.Delete Unit:=wdCharacter, Count:=1
+        ActiveWindow.ActivePane.View.SeekView = wdSeekMainDocument
+    End If
+    
+    'delete lingering contents of 1st page header
+    If ActiveDocument.Sections(1).Headers(wdHeaderFooterFirstPage).Exists = True Then
+        ActiveWindow.ActivePane.View.SeekView = wdSeekFirstPageHeader
+        Selection.WholeStory
+        Selection.Delete Unit:=wdCharacter, Count:=1
+        Selection.WholeStory
+        Selection.Delete Unit:=wdCharacter, Count:=1
+        ActiveWindow.ActivePane.View.SeekView = wdSeekMainDocument
+    End If
+
 End Sub
 
-Sub deleteLingeringEmailBookmark()
+Sub deleteLingeringBookmarks()
 '
 ' This bookmark is the last in the new General header,
 ' and tends to linger even if all headers are deleted.
@@ -166,16 +189,23 @@ Sub deleteLingeringEmailBookmark()
     If ActiveDocument.Bookmarks.Exists("staff_primary_email_1") = True Then
         ActiveDocument.Bookmarks(Index:="staff_primary_email_1").Delete
     End If
+    If ActiveDocument.Bookmarks.Exists("staff_job_title_pa_1") = True Then
+        ActiveDocument.Bookmarks(Index:="staff_job_title_pa_1").Delete
+    End If
     
     'newly processed forms:
     If ActiveDocument.Bookmarks.Exists("staff_primary_email_99") = True Then
         ActiveDocument.Bookmarks(Index:="staff_primary_email_99").Delete
     End If
+    If ActiveDocument.Bookmarks.Exists("staff_job_title_pa_99") = True Then
+        ActiveDocument.Bookmarks(Index:="staff_job_title_pa_99").Delete
+    End If
 
 End Sub
+
 Sub deleteOldBrandingLines()
 '
-' deleteOldBrandingLines, top 6 lines creating a mock-header in old documents
+' deleteOldBrandingLines, top 6 (general) or 3 (intake) lines creating a mock-header in old documents
 '
     'goto first page
     Selection.GoTo What:=wdGoToPage, Which:=wdGoToAbsolute, Count:=1
@@ -197,14 +227,12 @@ Sub addPagesAndOrPageNumbers()
     '''''
     'add page #s to all pages past page 1, creating/deleting a page 2 if necessary
     '
-    Dim initialPages As Integer
-    initialPages = ActiveDocument.BuiltInDocumentProperties(wdPropertyPages)
-    
+
     Dim objPages As Pages
     Set objPages = ActiveDocument.ActiveWindow.Panes(1).Pages
     
-    If initialPages = 1 Then
-        'if it only comes w/ one page, temporarily add a page 2 to gain access to the page header fields
+    If pInitialPages = 1 Then
+        'if it only comes w/ one page, temporarily add a page 2 to gain access to the page header fields;
         'skip to the end, hit Enter until you have 2 pages total
         Selection.EndKey Unit:=wdStory
         Do Until objPages.Count = 2
@@ -215,7 +243,7 @@ Sub addPagesAndOrPageNumbers()
     'jump to page 2 and add page number headers
     addPageNumberHeader
     
-    If initialPages = 1 Then
+    If pInitialPages = 1 Then
         'if it was orginally only one page, then go to the end and back up until there's 1 page left
         Selection.EndKey Unit:=wdStory
         Do Until objPages.Count = 1
@@ -231,18 +259,21 @@ Sub addPageNumberHeader()
     'go to page 2, otherwise we'd be editing the "first page header"
     Selection.GoTo What:=wdGoToPage, Which:=wdGoToAbsolute, Count:=2
     
-    'open the general page header
+    'open the generic page header
     ActiveWindow.ActivePane.View.SeekView = wdSeekCurrentPageHeader
     
     'custom text to appear before the page#, otherwise it ended up in a weird auto-loading place...
     Selection.TypeText Text:="Page "
     
-    
-     Application.Templates(BLDG_BLOCKS).BuildingBlockEntries("Plain Number 3").Insert Where:=Selection.Range, RichText:=True
+    Application.Templates(BLDG_BLOCKS).BuildingBlockEntries("Plain Number 3").Insert Where:=Selection.Range, RichText:=True
     'Alt version of above line, using environment variable:
     'Application.Templates(Environ("APPDATA") & "\Microsoft\Document Building Blocks\1033\15\Built-In Building Blocks.dotx" _
     '    ).BuildingBlockEntries("Plain Number 3").Insert Where:=Selection.Range, _
     '    RichText:=True
+     
+    'delete extra CR added to header by insertion method
+    Selection.EndKey Unit:=wdStory
+    Selection.Delete Unit:=wdCharacter, Count:=1
      
     'select it all and apply the appropriate style
     Selection.MoveLeft Unit:=wdCharacter, Count:=1
@@ -260,4 +291,3 @@ Sub ToggleBookmarks()
 '
     ActiveWindow.View.ShowBookmarks = Not ActiveWindow.View.ShowBookmarks
 End Sub
-
