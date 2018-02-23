@@ -5,7 +5,7 @@
 .DESCRIPTION
     . test connection to machine, report "OFFLINE" with darkgray if not pingable
     . if pingable, gather last reboot time
-    . report "OK" with darkgreen bg if rebooted < 24 hours ago, otherwise "NOTOK" with darkred bg
+    . report "OK" with darkgreen bg if rebooted < [days] ago, otherwise "NOTOK" with darkred bg
     . report ERROR with darkyellow bg if pingable but no data (likely means non-windows)
     . group by OU
     . email results / print to html file
