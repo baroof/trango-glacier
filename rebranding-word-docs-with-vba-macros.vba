@@ -14,7 +14,6 @@ Public Const STYLES_DOTM = "C:\files\styles.dotm"
 Public Const BLDG_BLOCKS = "C:\Users\#####\AppData\Roaming\Microsoft\Document Building Blocks\1033\15\Built-In Building Blocks.dotx"
 'more properly (Environ("APPDATA") & "\Microsoft\Document Building Blocks\1033\15\Built-In Building Blocks.dotx", but can't use a variable in a Const obvi
 Public pStrDocType As String
-Public pReProcess As Integer
 Public pInitialPages As Integer
 
 Sub CheckConsts()
@@ -28,7 +27,7 @@ End Sub
 
 Sub UpdateDocuments()
     Application.ScreenUpdating = False
-    Dim strFolder As String, strFile As String, wdDoc As Document
+    Dim strFolder As String, strFile As String, strFullName As String, wdDoc As Document
     
     'Which kind of processing is this?
     pStrDocType = InputBox("Are we processing 'general' or 'intake'?")
@@ -41,21 +40,32 @@ Sub UpdateDocuments()
     strFolder = InputBox("Path to folder of target documents:")
     If strFolder = "" Then Exit Sub
     
-    ''' Due to further rebranding changes occurring after we'd started, we need to now check if we are processing more old docs
-    ''' or Re-Processing new docs. Once we've made it through all the old stuff, this can go away and can drop the old-line deleter
-    pReProcess = MsgBox("is this a RE-process of NEW forms?", vbYesNo + vbQuestion, "pReProcess?")
-    
     strFile = Dir(strFolder & "\*.doc*", vbNormal)
     While strFile <> ""
-      Set wdDoc = Documents.Open(FileName:=strFolder & "\" & strFile, AddToRecentFiles:=False, Visible:=False)
-      With wdDoc
-        If pStrDocType = "general" Then
-              GeneralRebrand
-        ElseIf pStrDocType = "intake" Then
-              IntakeRebrand
-        End If
-        .Close SaveChanges:=True
-      End With
+        strFullName = strFolder & "\" & strFile
+        Set wdDoc = Documents.Open(filename:=strFullName, AddToRecentFiles:=False, Visible:=False)
+        With wdDoc
+            'check for read-only. If detected: save-as a .tmp w/o read-only, delete the original, and rename the copy
+            If ActiveDocument.ReadOnly = True Then
+                Dim strNewname As String
+                strNewname = strFullName & ".tmp"
+                .SaveAs2 filename:=strNewname, ReadOnlyRecommended:=False
+                .Close SaveChanges:=False
+                'delete the original
+                Kill strFullName
+                'rename the copy to the original's name
+                Name strNewname As strFullName
+                'reopen
+                Documents.Open filename:=strFullName, AddToRecentFiles:=False, Visible:=False
+            End If
+            
+            If pStrDocType = "general" Then
+                  GeneralRebrand
+            ElseIf pStrDocType = "intake" Then
+                  IntakeRebrand
+            End If
+            ActiveDocument.Close SaveChanges:=True
+        End With
       strFile = Dir()
     Wend
     Set wdDoc = Nothing
@@ -78,14 +88,13 @@ Sub RebrandDocuments(headFile As String, footFile As String)
 ' NOTE: if called on its own, changes to the document are NOT SAVED,
 ' so it's good for testing just GENERAL or just INTAKE subs or processing one-offs
 '
+
+    'how many pages are there before we begin?
     pInitialPages = ActiveDocument.BuiltInDocumentProperties(wdPropertyPages)
+    
     '''
     'delete old things
-    If pReProcess = vbNo Then
-      deleteOldBrandingLines
-    End If
-    
-    
+    deleteAboveTimeDateField
     deleteExistingHeaderFooter
     deleteLingeringBookmarks
     
@@ -135,6 +144,38 @@ Sub RebrandDocuments(headFile As String, footFile As String)
     'must occur after applying styles as it calls on an embedded custom style
     addPagesAndOrPageNumbers
     ''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''
+End Sub
+
+Sub deleteAboveTimeDateField()
+    'if there's fields...
+    If ActiveDocument.Fields.Count >= 1 Then
+        Dim fieldLoop As Field
+        'loop through until you encounter the first TIME or DATE field
+        'then go to just before that field, select everthing above it, and delete
+        For Each fieldLoop In ActiveDocument.Fields
+            If InStr(1, fieldLoop.Code.Text, "TIME", 1) Then
+                Selection.GoTo What:=wdGoToField, Name:="Time", Which:=wdGoToFirst
+                Selection.StartOf Unit:=wdStory, Extend:=wdExtend
+                'Selection must be >1 character, or else it's just the Time/Date field itself
+                If Selection.Characters.Count > 1 Then
+                    Selection.Delete
+                End If
+                Exit Sub
+            ElseIf InStr(1, fieldLoop.Code.Text, "DATE", 1) Then
+                Selection.GoTo What:=wdGoToField, Name:="Date", Which:=wdGoToFirst
+                Selection.StartOf Unit:=wdStory, Extend:=wdExtend
+                'Selection must be >1 character, or else it's just the Time/Date field itself
+                If Selection.Characters.Count > 1 Then
+                    Selection.Delete
+                End If
+                Exit Sub
+            End If
+        Next fieldLoop
+        'We shouldn't reach this point if we saw a time/date field, so...
+        MsgBox "ERROR: fields detected, but none were TIME or DATE."
+    Else
+        MsgBox "ERROR: no fields detected."
+    End If
 End Sub
 
 Sub deleteExistingHeaderFooter()
@@ -283,6 +324,7 @@ Sub addPageNumberHeader()
     'exit the header
     ActiveWindow.ActivePane.View.SeekView = wdSeekMainDocument
 End Sub
+
 Sub ToggleBookmarks()
 '
 ' ToggleBookmarks Macro
