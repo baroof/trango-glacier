@@ -14,7 +14,6 @@ Public Const STYLES_DOTM = "C:\files\styles.dotm"
 Public Const BLDG_BLOCKS = "C:\Users\#####\AppData\Roaming\Microsoft\Document Building Blocks\1033\15\Built-In Building Blocks.dotx"
 'more properly (Environ("APPDATA") & "\Microsoft\Document Building Blocks\1033\15\Built-In Building Blocks.dotx", but can't use a variable in a Const obvi
 Public pStrDocType As String
-Public pInitialPages As Integer
 
 Sub CheckConsts()
     MsgBox "GENERAL_HEADER = " & GENERAL_HEADER & vbCrLf & _
@@ -43,20 +42,20 @@ Sub UpdateDocuments()
     strFile = Dir(strFolder & "\*.doc*", vbNormal)
     While strFile <> ""
         strFullName = strFolder & "\" & strFile
-        Set wdDoc = Documents.Open(filename:=strFullName, AddToRecentFiles:=False, Visible:=False)
+        Set wdDoc = Documents.Open(FileName:=strFullName, AddToRecentFiles:=False, Visible:=False)
         With wdDoc
             'check for read-only. If detected: save-as a .tmp w/o read-only, delete the original, and rename the copy
             If ActiveDocument.ReadOnly = True Then
                 Dim strNewname As String
                 strNewname = strFullName & ".tmp"
-                .SaveAs2 filename:=strNewname, ReadOnlyRecommended:=False
+                .SaveAs2 FileName:=strNewname, ReadOnlyRecommended:=False
                 .Close SaveChanges:=False
                 'delete the original
                 Kill strFullName
                 'rename the copy to the original's name
                 Name strNewname As strFullName
                 'reopen
-                Documents.Open filename:=strFullName, AddToRecentFiles:=False, Visible:=False
+                Documents.Open FileName:=strFullName, AddToRecentFiles:=False, Visible:=False
             End If
             
             If pStrDocType = "general" Then
@@ -89,9 +88,6 @@ Sub RebrandDocuments(headFile As String, footFile As String)
 ' so it's good for testing just GENERAL or just INTAKE subs or processing one-offs
 '
 
-    'how many pages are there before we begin?
-    pInitialPages = ActiveDocument.BuiltInDocumentProperties(wdPropertyPages)
-    
     '''
     'delete old things
     deleteAboveTimeDateField
@@ -138,7 +134,7 @@ Sub RebrandDocuments(headFile As String, footFile As String)
         .AttachedTemplate = STYLES_DOTM
     End With
     ''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''
-      
+
     ''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''
     'add page #s to all pages past page 1
     'must occur after applying styles as it calls on an embedded custom style
@@ -187,6 +183,9 @@ Sub deleteExistingHeaderFooter()
     Dim oHead As HeaderFooter
     Dim oFoot As HeaderFooter
 
+    'set this at the start or else hidden headers/footers can come back later
+    ActiveDocument.Sections(1).PageSetup.DifferentFirstPageHeaderFooter = True
+    
     For Each oSec In ActiveDocument.Sections
         For Each oHead In oSec.Headers
             If oHead.Exists Then oHead.Range.Delete
@@ -197,17 +196,7 @@ Sub deleteExistingHeaderFooter()
         Next oFoot
     Next oSec
     
-    'delete any lingering contents of regular page header
-    If ActiveDocument.Sections(1).Headers(wdHeaderFooterPrimary).Exists = True Then
-        ActiveWindow.ActivePane.View.SeekView = wdSeekCurrentPageHeader
-        Selection.WholeStory
-        Selection.Delete Unit:=wdCharacter, Count:=1
-        Selection.WholeStory
-        Selection.Delete Unit:=wdCharacter, Count:=1
-        ActiveWindow.ActivePane.View.SeekView = wdSeekMainDocument
-    End If
-    
-    'delete lingering contents of 1st page header
+    'delete lingering contents of 1st page header/footer, TWICE to be sure
     If ActiveDocument.Sections(1).Headers(wdHeaderFooterFirstPage).Exists = True Then
         ActiveWindow.ActivePane.View.SeekView = wdSeekFirstPageHeader
         Selection.WholeStory
@@ -216,7 +205,34 @@ Sub deleteExistingHeaderFooter()
         Selection.Delete Unit:=wdCharacter, Count:=1
         ActiveWindow.ActivePane.View.SeekView = wdSeekMainDocument
     End If
-
+    If ActiveDocument.Sections(1).Footers(wdHeaderFooterFirstPage).Exists = True Then
+        ActiveWindow.ActivePane.View.SeekView = wdSeekFirstPageFooter
+        Selection.WholeStory
+        Selection.Delete Unit:=wdCharacter, Count:=1
+        Selection.WholeStory
+        Selection.Delete Unit:=wdCharacter, Count:=1
+        ActiveWindow.ActivePane.View.SeekView = wdSeekMainDocument
+    End If
+    
+    'delete any lingering contents of primary header/footer, TWICE to be sure
+    If ActiveDocument.Sections(1).Headers(wdHeaderFooterPrimary).Exists = True Then
+        Selection.GoTo What:=wdGoToPage, Which:=wdGoToAbsolute, Count:=1
+        ActiveWindow.ActivePane.View.SeekView = wdSeekCurrentPageHeader
+        Selection.WholeStory
+        Selection.Delete Unit:=wdCharacter, Count:=1
+        Selection.WholeStory
+        Selection.Delete Unit:=wdCharacter, Count:=1
+        ActiveWindow.ActivePane.View.SeekView = wdSeekMainDocument
+    End If
+    If ActiveDocument.Sections(1).Footers(wdHeaderFooterPrimary).Exists = True Then
+        Selection.GoTo What:=wdGoToPage, Which:=wdGoToAbsolute, Count:=1
+        ActiveWindow.ActivePane.View.SeekView = wdSeekCurrentPageFooter
+        Selection.WholeStory
+        Selection.Delete Unit:=wdCharacter, Count:=1
+        Selection.WholeStory
+        Selection.Delete Unit:=wdCharacter, Count:=1
+        ActiveWindow.ActivePane.View.SeekView = wdSeekMainDocument
+    End If
 End Sub
 
 Sub deleteLingeringBookmarks()
@@ -269,10 +285,11 @@ Sub addPagesAndOrPageNumbers()
     'add page #s to all pages past page 1, creating/deleting a page 2 if necessary
     '
 
-    Dim objPages As Pages
+    Dim objPages As Pages, intInitialPages As Integer
     Set objPages = ActiveDocument.ActiveWindow.Panes(1).Pages
+    intInitialPages = ActiveDocument.ActiveWindow.Panes(1).Pages.Count
     
-    If pInitialPages = 1 Then
+    If intInitialPages = 1 Then
         'if it only comes w/ one page, temporarily add a page 2 to gain access to the page header fields;
         'skip to the end, hit Enter until you have 2 pages total
         Selection.EndKey Unit:=wdStory
@@ -284,7 +301,7 @@ Sub addPagesAndOrPageNumbers()
     'jump to page 2 and add page number headers
     addPageNumberHeader
     
-    If pInitialPages = 1 Then
+    If intInitialPages = 1 Then
         'if it was orginally only one page, then go to the end and back up until there's 1 page left
         Selection.EndKey Unit:=wdStory
         Do Until objPages.Count = 1
@@ -324,7 +341,6 @@ Sub addPageNumberHeader()
     'exit the header
     ActiveWindow.ActivePane.View.SeekView = wdSeekMainDocument
 End Sub
-
 Sub ToggleBookmarks()
 '
 ' ToggleBookmarks Macro
@@ -333,3 +349,4 @@ Sub ToggleBookmarks()
 '
     ActiveWindow.View.ShowBookmarks = Not ActiveWindow.View.ShowBookmarks
 End Sub
+
